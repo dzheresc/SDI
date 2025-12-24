@@ -11,10 +11,12 @@ add_executable(example
     leaking_bucket.cpp
     fixed_window.cpp
     sliding_window_log.cpp
+    sliding_window_counter.cpp
     test_token_bucket.cpp
     test_leaking_bucket.cpp
     test_fixed_window.cpp
     test_sliding_window_log.cpp
+    test_sliding_window_counter.cpp
 )
 
 # Create libraries for all rate limiters
@@ -34,8 +36,13 @@ add_library(sliding_window_log_lib
     sliding_window_log.cpp
 )
 
+add_library(sliding_window_counter_lib
+    sliding_window_counter.cpp
+)
+
 target_include_directories(token_bucket_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(leaking_bucket_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(fixed_window_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(sliding_window_log_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(sliding_window_counter_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
