@@ -1,21 +1,23 @@
-# Token Bucket Rate Limiter
+# Rate Limiter Library
 
-A C++ implementation of a rate limiter using the Token Bucket algorithm.
+A comprehensive C++ implementation of multiple rate limiting algorithms, each with different characteristics and use cases.
 
 ## Overview
 
-The Token Bucket algorithm is a popular rate limiting technique that:
-- Maintains a bucket with a maximum capacity of tokens
-- Refills tokens at a constant rate (tokens per second)
-- Allows requests when tokens are available
-- Denies requests when the bucket is empty
+This library provides five different rate limiting algorithms:
+
+1. **Token Bucket** - Allows bursts, smooth refill
+2. **Leaking Bucket** - Smooth output rate, queue-based
+3. **Fixed Window** - Simple, resets at fixed intervals
+4. **Sliding Window Log** - Accurate, stores all timestamps
+5. **Sliding Window Counter** - Memory efficient, weighted approximation
 
 ## Features
 
-- **Thread-safe**: Uses mutex for concurrent access
-- **Precise timing**: Uses `std::chrono` for accurate time tracking
-- **Flexible**: Supports consuming single or multiple tokens
-- **Efficient**: O(1) time complexity for token consumption
+- **Thread-safe**: All implementations use mutex for concurrent access
+- **Precise timing**: Uses `std::chrono` for nanosecond-accurate time tracking
+- **Comprehensive testing**: Each algorithm includes extensive test suites
+- **Well-documented**: Clear API and usage examples
 
 ## Building
 
@@ -31,10 +33,26 @@ cmake --build .
 ### Manual Compilation
 
 ```bash
-g++ -std=c++17 -pthread example.cpp token_bucket.cpp -o example
+g++ -std=c++17 -pthread example.cpp token_bucket.cpp leaking_bucket.cpp fixed_window.cpp sliding_window_log.cpp sliding_window_counter.cpp test_token_bucket.cpp test_leaking_bucket.cpp test_fixed_window.cpp test_sliding_window_log.cpp test_sliding_window_counter.cpp -o example
 ```
 
-## Usage
+## Running the Tests
+
+```bash
+./example
+```
+
+This will run all test suites for each rate limiter algorithm.
+
+## Rate Limiter Algorithms
+
+### 1. Token Bucket
+
+**Best for**: Allowing bursts while maintaining average rate
+
+The Token Bucket algorithm maintains a bucket with tokens that are refilled at a constant rate. Requests consume tokens, allowing bursts up to the bucket capacity.
+
+#### Usage
 
 ```cpp
 #include "token_bucket.h"
@@ -42,58 +60,252 @@ g++ -std=c++17 -pthread example.cpp token_bucket.cpp -o example
 // Create a rate limiter: 10 tokens capacity, 2 tokens/second refill rate
 TokenBucket limiter(10.0, 2.0);
 
-// Try to consume a token
 if (limiter.tryConsume()) {
     // Request allowed
 } else {
     // Rate limited
 }
+```
 
-// Try to consume multiple tokens
-if (limiter.tryConsume(5)) {
-    // 5 tokens consumed
+#### API
+
+- `TokenBucket(double capacity, double refillRate)`
+- `bool tryConsume()` / `bool tryConsume(int tokens)`
+- `double getAvailableTokens()`
+- `double getCapacity()` / `double getRefillRate()`
+- `void reset()`
+
+#### Characteristics
+
+- ✅ Allows bursts up to capacity
+- ✅ Smooth token refill
+- ✅ O(1) time complexity
+- ⚠️ Can allow bursts at boundaries
+
+---
+
+### 2. Leaking Bucket
+
+**Best for**: Smooth, constant output rate
+
+The Leaking Bucket algorithm maintains a queue of requests that are processed (leaked) at a fixed rate. Provides smoother output than token bucket.
+
+#### Usage
+
+```cpp
+#include "leaking_bucket.h"
+
+// Create a rate limiter: 10 requests capacity, 2 requests/second leak rate
+LeakingBucket limiter(10, 2.0);
+
+if (limiter.tryAdd()) {
+    // Request allowed
+} else {
+    // Rate limited (queue full)
 }
-
-// Check available tokens
-double available = limiter.getAvailableTokens();
 ```
 
-## Running the Example
+#### API
 
-```bash
-./example
+- `LeakingBucket(int capacity, double leakRate)`
+- `bool tryAdd()` / `bool tryAdd(int count)`
+- `int getQueueSize()`
+- `int getCapacity()` / `double getLeakRate()`
+- `void reset()`
+
+#### Characteristics
+
+- ✅ Smooth, constant output rate
+- ✅ No bursts at boundaries
+- ✅ Queue-based processing
+- ⚠️ Rejects when queue is full
+
+---
+
+### 3. Fixed Window
+
+**Best for**: Simple use cases with acceptable boundary bursts
+
+The Fixed Window algorithm divides time into fixed intervals and counts requests within each window. Simple but can allow bursts at window boundaries.
+
+#### Usage
+
+```cpp
+#include "fixed_window.h"
+
+// Create a rate limiter: 5 requests per 1 second window
+FixedWindow limiter(5, 1);
+
+if (limiter.tryAllow()) {
+    // Request allowed
+} else {
+    // Rate limited
+}
 ```
 
-The example demonstrates:
-- Basic usage and token consumption
-- Token refill over time
+#### API
+
+- `FixedWindow(int maxRequests, int windowSizeSeconds)`
+- `bool tryAllow()` / `bool tryAllow(int count)`
+- `int getCurrentCount()`
+- `int getMaxRequests()` / `int getWindowSizeSeconds()`
+- `double getTimeRemainingInWindow()`
+- `void reset()`
+
+#### Characteristics
+
+- ✅ Simple implementation
+- ✅ Low memory usage
+- ✅ O(1) time complexity
+- ⚠️ Can allow bursts at window boundaries
+- ⚠️ Less accurate than sliding windows
+
+---
+
+### 4. Sliding Window Log
+
+**Best for**: Maximum accuracy, when memory usage is not a concern
+
+The Sliding Window Log algorithm maintains a log of all request timestamps and removes expired ones. Provides the most accurate rate limiting.
+
+#### Usage
+
+```cpp
+#include "sliding_window_log.h"
+
+// Create a rate limiter: 5 requests per 1 second window
+SlidingWindowLog limiter(5, 1);
+
+if (limiter.tryAllow()) {
+    // Request allowed
+} else {
+    // Rate limited
+}
+```
+
+#### API
+
+- `SlidingWindowLog(int maxRequests, int windowSizeSeconds)`
+- `bool tryAllow()` / `bool tryAllow(int count)`
+- `int getCurrentCount()`
+- `int getMaxRequests()` / `int getWindowSizeSeconds()`
+- `double getTimeUntilOldestExpires()`
+- `void reset()`
+
+#### Characteristics
+
+- ✅ Most accurate rate limiting
+- ✅ True sliding window behavior
+- ✅ No boundary bursts
+- ⚠️ Higher memory usage (stores all timestamps)
+- ⚠️ O(n) cleanup where n is requests in window
+
+---
+
+### 5. Sliding Window Counter
+
+**Best for**: Balance between accuracy and memory efficiency
+
+The Sliding Window Counter algorithm divides the window into sub-windows and uses weighted counting. More memory efficient than sliding window log with good accuracy.
+
+#### Usage
+
+```cpp
+#include "sliding_window_counter.h"
+
+// Create a rate limiter: 5 requests per 1 second window, 10 sub-windows
+SlidingWindowCounter limiter(5, 1, 10);
+
+if (limiter.tryAllow()) {
+    // Request allowed
+} else {
+    // Rate limited
+}
+```
+
+#### API
+
+- `SlidingWindowCounter(int maxRequests, int windowSizeSeconds, int numSubWindows = 10)`
+- `bool tryAllow()` / `bool tryAllow(int count)`
+- `double getCurrentCount()` (returns weighted count)
+- `int getMaxRequests()` / `int getWindowSizeSeconds()` / `int getNumSubWindows()`
+- `void reset()`
+
+#### Characteristics
+
+- ✅ Memory efficient (fixed number of counters)
+- ✅ True sliding window behavior
+- ✅ Configurable precision (via sub-window count)
+- ✅ Good balance of accuracy and memory
+- ⚠️ Slight approximation (weighted counting)
+
+---
+
+## Algorithm Comparison
+
+| Algorithm | Accuracy | Memory | Burst Handling | Complexity | Best Use Case |
+|-----------|----------|--------|----------------|------------|---------------|
+| **Token Bucket** | Medium | Low | ✅ Allows bursts | O(1) | General purpose, burst tolerance |
+| **Leaking Bucket** | High | Medium | ❌ No bursts | O(1) | Smooth output rate needed |
+| **Fixed Window** | Low | Low | ⚠️ Boundary bursts | O(1) | Simple, low overhead |
+| **Sliding Window Log** | Very High | High | ❌ No bursts | O(n) | Maximum accuracy required |
+| **Sliding Window Counter** | High | Low | ❌ No bursts | O(k)* | Balance of accuracy/memory |
+
+*Where k is the number of sub-windows (typically 10-20)
+
+## When to Use Which Algorithm?
+
+### Token Bucket
+- You need to allow bursts of traffic
+- Average rate limiting is acceptable
+- Low memory overhead is important
+
+### Leaking Bucket
+- You need smooth, constant output rate
+- Bursts should be smoothed out
+- Queue-based processing is acceptable
+
+### Fixed Window
+- Simplicity is more important than accuracy
+- Boundary bursts are acceptable
+- Very low overhead is required
+
+### Sliding Window Log
+- Maximum accuracy is required
+- Memory usage is not a concern
+- You need true sliding window behavior
+
+### Sliding Window Counter
+- You need good accuracy with low memory
+- True sliding window behavior is required
+- Configurable precision is useful
+
+## Thread Safety
+
+All rate limiters are thread-safe and can be used concurrently from multiple threads. They use `std::mutex` internally to protect shared state.
+
+## Performance Considerations
+
+- **Token Bucket**: O(1) operations, very fast
+- **Leaking Bucket**: O(1) operations, very fast
+- **Fixed Window**: O(1) operations, very fast
+- **Sliding Window Log**: O(n) cleanup where n is requests in window
+- **Sliding Window Counter**: O(k) where k is number of sub-windows (typically 10-20)
+
+## Example Output
+
+When running the test suite, you'll see output for each algorithm demonstrating:
+- Basic usage and request handling
+- Rate limiting behavior
+- Time-based expiration
 - Burst capacity handling
 - Thread-safe concurrent access
+- Algorithm-specific features
 
-## API Reference
+## License
 
-### Constructor
-```cpp
-TokenBucket(double capacity, double refillRate)
-```
-- `capacity`: Maximum number of tokens the bucket can hold
-- `refillRate`: Number of tokens added per second
+This is a reference implementation for educational purposes.
 
-### Methods
-- `bool tryConsume()`: Try to consume one token
-- `bool tryConsume(int tokens)`: Try to consume multiple tokens
-- `double getAvailableTokens()`: Get current available tokens
-- `double getCapacity()`: Get bucket capacity
-- `double getRefillRate()`: Get refill rate
-- `void reset()`: Reset bucket to full capacity
+## Contributing
 
-## Algorithm Details
-
-The token bucket algorithm works as follows:
-
-1. **Initialization**: Bucket starts with full capacity
-2. **Refill**: Tokens are continuously added at the refill rate
-3. **Consumption**: Each request consumes one or more tokens
-4. **Rate Limiting**: Requests are denied when insufficient tokens are available
-
-The implementation uses nanosecond precision for accurate token refill calculations.
+Feel free to extend this library with additional rate limiting algorithms or improvements to existing implementations.
