@@ -4,6 +4,7 @@
 void runAllTokenBucketTests();
 void runAllLeakingBucketTests();
 void runAllFixedWindowTests();
+void runAllSlidingWindowLogTests();
 
 int main() {
     try {
@@ -26,6 +27,12 @@ int main() {
         // Run Fixed Window tests
         std::cout << "\n[FIXED WINDOW TESTS]\n" << std::endl;
         runAllFixedWindowTests();
+        
+        std::cout << "\n========================================\n" << std::endl;
+        
+        // Run Sliding Window Log tests
+        std::cout << "\n[SLIDING WINDOW LOG TESTS]\n" << std::endl;
+        runAllSlidingWindowLogTests();
         
         std::cout << "\n========================================" << std::endl;
         std::cout << "All tests completed successfully!" << std::endl;
