@@ -3,6 +3,7 @@
 // Forward declarations for test functions
 void runAllTokenBucketTests();
 void runAllLeakingBucketTests();
+void runAllFixedWindowTests();
 
 int main() {
     try {
@@ -19,6 +20,12 @@ int main() {
         // Run Leaking Bucket tests
         std::cout << "\n[LEAKING BUCKET TESTS]\n" << std::endl;
         runAllLeakingBucketTests();
+        
+        std::cout << "\n========================================\n" << std::endl;
+        
+        // Run Fixed Window tests
+        std::cout << "\n[FIXED WINDOW TESTS]\n" << std::endl;
+        runAllFixedWindowTests();
         
         std::cout << "\n========================================" << std::endl;
         std::cout << "All tests completed successfully!" << std::endl;
