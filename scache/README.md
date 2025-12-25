@@ -1,23 +1,24 @@
 # StringsCache - String Interning Cache
 
-A C++ implementation of a string interning cache that stores each unique string only once and returns `string_view` references for efficient access.
+A C++ implementation of a string interning cache that stores each unique string only once in memory blocks and returns lightweight `CachedString` indices for efficient access.
 
 ## Overview
 
 String interning is a technique where identical strings are stored only once in memory, and all references point to the same memory location. This provides:
 
 - **Memory Efficiency**: Reduces memory usage when many duplicate strings exist
-- **Fast Comparison**: Can compare strings by pointer comparison instead of character-by-character
-- **string_view Usage**: Returns lightweight `string_view` references instead of full `string` copies
+- **Fast Lookup**: Uses hash map for O(1) average case lookup
+- **Block-Based Storage**: Efficient memory management using 64KB blocks
+- **Lightweight References**: Returns `CachedString` (just an index) instead of full string copies
 
 ## Features
 
 - **String Interning**: Each unique string is stored only once
-- **string_view Interface**: Returns `string_view` for efficient, non-owning references
-- **Thread-Safe**: All operations are protected with mutexes
-- **Memory Efficient**: Significant memory savings when many duplicate strings exist
-- **Index Access**: Access interned strings by index
-- **Statistics**: Get memory usage statistics
+- **Block-Based Memory**: Uses 64KB memory blocks for efficient allocation
+- **CachedString Interface**: Returns lightweight index-based references
+- **Fast Hash Function**: Uses xxh64 for fast hashing
+- **Memory Alignment**: Automatically aligns strings for optimal performance
+- **Simple API**: Minimal, focused interface
 
 ## Building
 
@@ -33,22 +34,29 @@ cmake --build .
 ### Manual Compilation
 
 ```bash
-g++ -std=c++17 -pthread example.cpp strings_cache.cpp test_strings_cache.cpp -o example
+g++ -std=c++17 example_comprehensive.cpp test_strings_cache_comprehensive.cpp -o example_comprehensive
 ```
+
+Note: Requires `xxh64.hpp` header file for the hash function.
 
 ## Usage
 
 ### Basic Example
 
 ```cpp
-#include "strings_cache.h"
+#include "scache.h"
 
 StringsCache cache;
 
-// Intern strings
-std::string_view view1 = cache.intern("hello");
-std::string_view view2 = cache.intern("world");
-std::string_view view3 = cache.intern("hello");  // Duplicate
+// Intern strings - returns CachedString (index)
+CachedString cached1 = cache.intern("hello");
+CachedString cached2 = cache.intern("world");
+CachedString cached3 = cache.intern("hello");  // Duplicate
+
+// Resolve CachedString to string_view when needed
+std::string_view view1 = cache.resolve(cached1);
+std::string_view view2 = cache.resolve(cached2);
+std::string_view view3 = cache.resolve(cached3);
 
 // view1 and view3 point to the same memory
 if (view1.data() == view3.data()) {
@@ -59,79 +67,57 @@ if (view1.data() == view3.data()) {
 std::cout << view1 << " " << view2 << std::endl;
 ```
 
-### Different Input Types
+### Duplicate Detection
 
 ```cpp
 StringsCache cache;
 
-// From std::string
-std::string str = "test";
-std::string_view v1 = cache.intern(str);
+CachedString cached1 = cache.intern("test");
+CachedString cached2 = cache.intern("test");  // Duplicate
 
-// From const char*
-std::string_view v2 = cache.intern("test");
+// Both return the same index
+if (cached1.index == cached2.index) {
+    std::cout << "Duplicate strings share same index" << std::endl;
+}
 
-// From string_view
-std::string_view v3 = cache.intern(std::string_view("test"));
-
-// All point to the same memory
-assert(v1.data() == v2.data() && v2.data() == v3.data());
+// Resolve to verify they're the same
+std::string_view v1 = cache.resolve(cached1);
+std::string_view v2 = cache.resolve(cached2);
+assert(v1.data() == v2.data());  // Same memory
 ```
 
-### Check if String Exists
+### Empty String Handling
 
 ```cpp
 StringsCache cache;
 
-cache.intern("apple");
-cache.intern("banana");
+// Empty string is automatically interned at construction (index 0)
+CachedString empty(0);
+std::string_view emptyView = cache.resolve(empty);
+assert(emptyView.empty());
 
-if (cache.contains("apple")) {
-    std::cout << "Apple is interned" << std::endl;
-}
-
-if (!cache.contains("grape")) {
-    std::cout << "Grape is not interned" << std::endl;
-}
+// Interning empty string again returns index 0
+CachedString empty2 = cache.intern("");
+assert(empty2.index == 0);
 ```
 
-### Index Access
+### Working with string_view
 
 ```cpp
 StringsCache cache;
 
-cache.intern("first");
-cache.intern("second");
-cache.intern("third");
+std::string str = "test_string";
+std::string_view sv(str);
 
-// Access by index
-for (size_t i = 0; i < cache.size(); ++i) {
-    std::cout << "[" << i << "] = " << cache[i] << std::endl;
-}
+// Intern from string_view
+CachedString cached = cache.intern(sv);
 
-// Safe access with bounds checking
-try {
-    std::string_view view = cache.at(0);
-} catch (const std::out_of_range& e) {
-    // Handle error
-}
-```
+// Original string can be modified/deleted, resolved view remains valid
+str.clear();
+str = "different";
 
-### Memory Statistics
-
-```cpp
-StringsCache cache;
-
-// Intern many strings
-for (int i = 0; i < 1000; ++i) {
-    cache.intern("duplicate_string");
-}
-
-size_t totalChars, totalMemory;
-cache.getStats(totalChars, totalMemory);
-
-std::cout << "Total characters: " << totalChars << std::endl;
-std::cout << "Total memory: " << totalMemory << " bytes" << std::endl;
+std::string_view view = cache.resolve(cached);
+assert(view == "test_string");  // Still valid!
 ```
 
 ## API Reference
@@ -139,61 +125,108 @@ std::cout << "Total memory: " << totalMemory << " bytes" << std::endl;
 ### Constructor
 
 ```cpp
-StringsCache(size_t initialCapacity = 1024)
+StringsCache()
 ```
 
-- `initialCapacity`: Initial capacity for string storage
+- Creates a new cache with one 64KB memory block
+- Automatically interns the empty string at index 0
 
 ### Methods
 
 #### String Interning
 
-- `std::string_view intern(const std::string& str)`: Intern a string
-- `std::string_view intern(std::string_view str)`: Intern from string_view
-- `std::string_view intern(const char* str)`: Intern a C-string
+```cpp
+CachedString intern(std::string_view sv)
+```
+
+- Interns a string and returns a `CachedString` containing its index
+- If the string already exists, returns the existing index
+- If the string doesn't fit in current block, allocates a new 64KB block
+- Automatically aligns memory for optimal performance
+
+#### Resolving
+
+```cpp
+std::string_view resolve(CachedString id) const
+```
+
+- Resolves a `CachedString` to a `string_view` pointing to the interned string
+- Throws `std::runtime_error` if index is out of range
+- Returns a non-owning view that remains valid as long as the cache exists
 
 #### Query Operations
 
-- `bool contains(std::string_view str)`: Check if string is interned
-- `size_t size()`: Get number of unique strings
-- `bool empty()`: Check if cache is empty
+```cpp
+size_t size() const
+```
 
-#### Index Access
+- Returns the number of unique strings stored in the cache
+- Includes the empty string (index 0) that's interned at construction
 
-- `std::string_view at(size_t index)`: Get string_view by index (with bounds checking)
-- `std::string_view operator[](size_t index)`: Get string_view by index (no bounds checking)
+```cpp
+bool empty() const
+```
 
-#### Management
+- Returns `true` if `size() == 0`
+- Note: Since empty string is interned at construction, this will always return `false` for a valid cache
 
-- `void clear()`: Clear all interned strings
-- `void reserve(size_t capacity)`: Reserve capacity
-- `void getStats(size_t& totalChars, size_t& totalMemory)`: Get statistics
+### CachedString Struct
+
+```cpp
+struct CachedString {
+    size_t index;
+    CachedString(size_t i);
+};
+```
+
+- Lightweight wrapper around a `size_t` index
+- Only 8 bytes (on 64-bit systems) vs 16 bytes for `string_view`
+- Can be stored efficiently in containers
+- Index 0 always refers to the empty string
 
 ## Internal Structure
 
 The cache maintains:
 
-1. **`vector<string> stringStorage_`**: Stores the actual string data
+1. **`vector<unique_ptr<char[]>> blocks`**: Memory blocks (64KB each)
+   - Stores actual string data
+   - New blocks allocated when current block is full
    - Ensures memory stability for string_views
-   - Each unique string is stored once
 
-2. **`vector<string_view> stringViews_`**: Stores string_view references
-   - Points to strings in `stringStorage_`
-   - Allows index-based access
+2. **`vector<string_view> index`**: Index of all interned strings
+   - Each `string_view` points into one of the memory blocks
+   - Allows O(1) access by index
+   - Index 0 is always the empty string
 
-3. **`unordered_map<string_view, size_t> viewToIndex_`**: Maps string_view to index
-   - Fast lookup to check if string exists
-   - Maps to index in `stringViews_` vector
+3. **`unordered_map<string_view, size_t> map`**: Hash map for lookup
+   - Maps string_view to index
+   - Uses xxh64 hash function for fast hashing
+   - Transparent hash/equality for efficient lookups
+
+4. **`size_t used`**: Tracks bytes used in current block
+   - Used to determine when to allocate new block
+   - Automatically aligned after each string
 
 ## How It Works
 
-1. **Intern Request**: When a string is interned, the cache checks if it already exists
-2. **Lookup**: Uses the hash map to quickly find if the string is already stored
-3. **Storage**: If new, stores the string in `stringStorage_` and creates a `string_view`
-4. **Indexing**: Adds the view to `stringViews_` and updates the hash map
-5. **Return**: Returns the `string_view` pointing to the stored string
+1. **Construction**: Allocates first 64KB block and interns empty string
+2. **Intern Request**: 
+   - Checks if string fits in current block (if not, allocates new block)
+   - Looks up string in hash map
+   - If found, returns existing index
+   - If not found, copies string to current block, creates string_view, adds to index and map
+   - Aligns memory pointer
+   - Returns new index
+3. **Resolve**: Looks up index in `index` vector and returns the `string_view`
 
 ## Memory Efficiency
+
+### Block-Based Allocation
+
+- Strings are stored in 64KB blocks
+- When a block is full, a new one is allocated
+- Memory is aligned for optimal performance
+- No fragmentation from individual allocations
 
 ### Example
 
@@ -203,28 +236,34 @@ std::vector<std::string> strings;
 for (int i = 0; i < 10000; ++i) {
     strings.push_back("duplicate_string");  // 10000 copies
 }
-// Memory: 10000 * string_size
+// Memory: 10000 * string_size + overhead
 ```
 
 With interning:
 ```cpp
 StringsCache cache;
+std::vector<CachedString> cached;
 for (int i = 0; i < 10000; ++i) {
-    cache.intern("duplicate_string");  // Only 1 copy stored
+    cached.push_back(cache.intern("duplicate_string"));  // Only 1 copy stored
 }
-// Memory: 1 * string_size + overhead
+// Memory: 1 * string_size + block overhead
+// CachedString storage: 10000 * 8 bytes (vs 10000 * 16 bytes for string_view)
 ```
-
-## Thread Safety
-
-All operations are thread-safe and can be used concurrently from multiple threads. The implementation uses `std::mutex` to protect shared state.
 
 ## Performance Characteristics
 
-- **Intern Operation**: O(1) average case (hash map lookup)
-- **Contains Check**: O(1) average case
-- **Index Access**: O(1)
+- **Intern Operation**: O(1) average case (hash map lookup + block allocation if needed)
+- **Resolve Operation**: O(1) (vector index access)
 - **Memory**: O(n) where n is number of unique strings
+- **Block Allocation**: O(1) amortized (new 64KB block when needed)
+
+## Hash Function
+
+The implementation uses **xxh64** (xxHash 64-bit) for hashing:
+- Extremely fast (faster than std::hash)
+- Good distribution properties
+- Low collision rate
+- Suitable for high-performance applications
 
 ## Use Cases
 
@@ -234,28 +273,31 @@ All operations are thread-safe and can be used concurrently from multiple thread
 - **Web Servers**: Repeated URL paths, headers
 - **Compilers**: Symbol table, string literals
 - **Game Engines**: Resource names, asset paths
+- **Serialization**: Repeated field names
 
 ## Advantages
 
-✅ **Memory Savings**: Significant reduction when many duplicate strings exist
-✅ **Fast Comparison**: Can compare by pointer (if same cache instance)
-✅ **Lightweight References**: `string_view` is cheap to copy
-✅ **Thread-Safe**: Safe for concurrent access
-✅ **Simple API**: Easy to use
+✅ **Memory Savings**: Significant reduction when many duplicate strings exist  
+✅ **Block-Based**: Efficient memory allocation without fragmentation  
+✅ **Lightweight References**: `CachedString` is only 8 bytes  
+✅ **Fast Hashing**: xxh64 provides excellent performance  
+✅ **Simple API**: Minimal, focused interface  
+✅ **Memory Stability**: string_views remain valid as long as cache exists  
 
 ## Limitations
 
-⚠️ **Memory Growth**: Cache grows with number of unique strings (never shrinks until `clear()`)
-⚠️ **string_view Lifetime**: `string_view` references are valid as long as cache exists
-⚠️ **No Removal**: Individual strings cannot be removed (only `clear()` all)
-⚠️ **Hash Collisions**: Very rare, but possible (handled by hash map)
+⚠️ **Memory Growth**: Cache grows with number of unique strings (never shrinks)  
+⚠️ **No Individual Removal**: Cannot remove individual strings (cache grows monotonically)  
+⚠️ **Block Overhead**: Each 64KB block may have unused space  
+⚠️ **string_view Lifetime**: `string_view` references are valid as long as cache exists  
+⚠️ **Index Validation**: `resolve()` throws if index is invalid (no bounds checking in CachedString)  
 
 ## Best Practices
 
-1. **Lifetime Management**: Ensure cache outlives all `string_view` references
-2. **Capacity Planning**: Use `reserve()` if you know approximate number of unique strings
-3. **Memory Monitoring**: Use `getStats()` to monitor memory usage
-4. **Clear When Done**: Call `clear()` when cache is no longer needed to free memory
+1. **Lifetime Management**: Ensure cache outlives all `string_view` references from `resolve()`
+2. **Index Validation**: Always validate `CachedString` indices before calling `resolve()` in production code
+3. **Memory Monitoring**: Monitor `size()` to track number of unique strings
+4. **Reuse Cache**: Reuse the same cache instance for related operations to maximize interning benefits
 
 ## Example: Configuration Parser
 
@@ -264,23 +306,67 @@ class ConfigParser {
     StringsCache cache_;
     
 public:
-    std::string_view parseKey(const std::string& line) {
-        // Extract key from line
+    CachedString parseKey(const std::string& line) {
         size_t pos = line.find('=');
         std::string key = line.substr(0, pos);
         return cache_.intern(key);  // Intern the key
     }
     
-    std::string_view parseValue(const std::string& line) {
-        // Extract value from line
+    CachedString parseValue(const std::string& line) {
         size_t pos = line.find('=');
         std::string value = line.substr(pos + 1);
         return cache_.intern(value);  // Intern the value
     }
+    
+    void printKey(CachedString key) {
+        std::string_view view = cache_.resolve(key);
+        std::cout << "Key: " << view << std::endl;
+    }
 };
 ```
+
+## Example: Symbol Table
+
+```cpp
+class SymbolTable {
+    StringsCache cache_;
+    std::unordered_map<CachedString, SymbolInfo> symbols_;
+    
+public:
+    CachedString addSymbol(const std::string& name) {
+        CachedString cached = cache_.intern(name);
+        symbols_[cached] = SymbolInfo{/* ... */};
+        return cached;
+    }
+    
+    bool hasSymbol(CachedString name) const {
+        return symbols_.find(name) != symbols_.end();
+    }
+    
+    std::string_view getName(CachedString name) const {
+        return cache_.resolve(name);
+    }
+};
+```
+
+## Running Tests
+
+```bash
+./example_comprehensive
+```
+
+The comprehensive test suite includes:
+- Constructor and initialization
+- Basic interning operations
+- Duplicate detection
+- Resolve functionality
+- Error handling
+- Memory block management
+- Concurrent access
+- Large scale operations
+- Special characters
+- Very long strings
 
 ## License
 
 This is a reference implementation for educational purposes.
-
