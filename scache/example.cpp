@@ -1,0 +1,20 @@
+#include "scache.h"
+#include <iostream>
+#include "test_strings_cache.cpp"
+
+int main() {
+    try {
+        std::cout << "========================================" << std::endl;
+        std::cout << "  StringsCache Test Suite" << std::endl;
+        std::cout << "========================================\n" << std::endl;
+        
+        runAllTests();
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+    
+    return 0;
+}
+
